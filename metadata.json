@@ -1,0 +1,5 @@
+{
+  "name": "Music Video Outline Generator",
+  "description": "An AI-powered tool to help you create a detailed storyboard for your music video. Input your concept and lyrics, and let Gemini generate scene-by-scene visuals, complete with AI-generated images for each moment.",
+  "requestFramePermissions": []
+}
