@@ -5,45 +5,44 @@ import AsyncImage from './AsyncImage';
 import { useAudioUrl } from '../hooks/useAudioUrl';
 import PlayIcon from './PlayIcon';
 import PauseIcon from './PauseIcon';
+import CloseIcon from './CloseIcon';
+import Spinner from './Spinner';
 
-interface FilmstripProps {
+interface CinematicPreviewProps {
   scenes: Scene[];
-  onFrameClick: (index: number) => void;
   audioId: string | null;
+  onClose: () => void;
 }
 
 const parseTimestamp = (ts: string): number => {
+    if (!ts) return -1;
     const match = ts.match(/\[(\d{2}):(\d{2})\.(\d{3})\]/);
     if (!match) return -1;
     const [, minutes, seconds, milliseconds] = match;
     return parseInt(minutes, 10) * 60 + parseInt(seconds, 10) + parseInt(milliseconds, 10) / 1000;
 };
 
-const Filmstrip: React.FC<FilmstripProps> = ({ scenes, onFrameClick, audioId }) => {
-  const hasImages = scenes.some(s => s.imageHistory && s.imageHistory.length > 0);
+const formatTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return '00:00';
+    const floorSeconds = Math.floor(seconds);
+    const min = Math.floor(floorSeconds / 60);
+    const sec = floorSeconds % 60;
+    return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
+
+const CinematicPreview: React.FC<CinematicPreviewProps> = ({ scenes, audioId, onClose }) => {
   const audioUrl = useAudioUrl(audioId);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const frameRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scrubberRef = useRef<HTMLInputElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeSceneIndex, setActiveSceneIndex] = useState(-1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   const sceneTimestamps = useMemo(() => scenes.map(scene => parseTimestamp(scene.timestamp)), [scenes]);
-
-  useEffect(() => {
-    frameRefs.current = frameRefs.current.slice(0, scenes.length);
-  }, [scenes]);
-
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
+  const activeScene = activeSceneIndex !== -1 ? scenes[activeSceneIndex] : null;
+  const activeImageId = activeScene?.imageHistory?.[activeScene.imageHistory.length - 1]?.[0];
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -51,111 +50,122 @@ const Filmstrip: React.FC<FilmstripProps> = ({ scenes, onFrameClick, audioId }) 
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    const handleEnded = () => {
-        setIsPlaying(false);
-        setActiveSceneIndex(-1);
-    };
-
+    const handleLoadedMetadata = () => setDuration(audio.duration);
     const handleTimeUpdate = () => {
-      const currentTime = audio.currentTime;
+      const time = audio.currentTime;
+      setCurrentTime(time);
+
       let newActiveIndex = -1;
       for (let i = sceneTimestamps.length - 1; i >= 0; i--) {
-        if (sceneTimestamps[i] !== -1 && currentTime >= sceneTimestamps[i]) {
+        if (sceneTimestamps[i] !== -1 && time >= sceneTimestamps[i]) {
           newActiveIndex = i;
           break;
         }
       }
-
-      setActiveSceneIndex(prevIndex => {
-        if (newActiveIndex !== -1 && newActiveIndex !== prevIndex) {
-          const frameEl = frameRefs.current[newActiveIndex];
-          frameEl?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest',
-            inline: 'center',
-          });
-        }
-        return newActiveIndex;
-      });
+      setActiveSceneIndex(newActiveIndex);
     };
+    
+    const handleEnded = () => {
+      setIsPlaying(false);
+      audio.currentTime = 0;
+      setCurrentTime(0);
+      setActiveSceneIndex(-1);
+    }
 
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
-    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
 
     return () => {
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
     };
   }, [sceneTimestamps]);
 
-  if (!hasImages) {
-    return null;
-  }
+  const handlePlayPause = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+  };
 
+  const handleScrubberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!audioRef.current) return;
+    const time = parseFloat(e.target.value);
+    audioRef.current.currentTime = time;
+    setCurrentTime(time);
+  };
+  
   return (
-    <section className="w-full mt-12 sticky bottom-0 z-10">
-      <div className="flex justify-center items-center gap-4 mb-4">
-        <h2 className="text-2xl font-bold text-center">Cinematic Filmstrip</h2>
-        {audioUrl && (
-            <>
-                <audio ref={audioRef} src={audioUrl} preload="auto" />
-                <button onClick={togglePlay} className="p-2 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white transition-colors">
-                    {isPlaying ? <PauseIcon className="w-5 h-5"/> : <PlayIcon className="w-5 h-5"/>}
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex flex-col items-center justify-center p-4" onClick={onClose}>
+        <div className="w-full max-w-6xl max-h-full flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex justify-between items-center text-white">
+                <h2 className="text-2xl font-bold">Cinematic Preview</h2>
+                <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+                    <CloseIcon className="w-6 h-6" />
                 </button>
-            </>
-        )}
-      </div>
-      <div className="bg-gray-900/80 backdrop-blur-sm p-4 rounded-xl border border-gray-700">
-        <div ref={scrollContainerRef} className="flex overflow-x-auto space-x-4 pb-4">
-          {scenes.map((scene, index) => {
-            const latestImages = scene.imageHistory?.[scene.imageHistory.length - 1];
-            const imageId = latestImages?.[0];
+            </div>
 
-            return (
-              <div
-                key={index}
-// FIX: The ref callback was implicitly returning a value, which is not allowed. Wrapping the assignment in curly braces `{}` fixes this by ensuring the function returns void.
-                ref={el => { frameRefs.current[index] = el; }}
-                onClick={() => onFrameClick(index)}
-                className={`group flex-shrink-0 w-48 h-32 bg-black cursor-pointer relative transition-all duration-300 ${activeSceneIndex === index ? 'ring-2 ring-cyan-400 scale-105' : 'ring-0'}`}
-                title={`Jump to scene: ${scene.timestamp}`}
-              >
-                {/* Sprocket holes top and bottom */}
-                <div className="absolute top-0 left-2 right-2 h-2 flex justify-between">
-                  {[...Array(5)].map((_, i) => <div key={i} className="w-1 h-1 bg-gray-500 rounded-sm"></div>)}
-                </div>
-                <div className="absolute bottom-0 left-2 right-2 h-2 flex justify-between">
-                   {[...Array(5)].map((_, i) => <div key={i} className="w-1 h-1 bg-gray-500 rounded-sm"></div>)}
-                </div>
+            {/* Main Content */}
+            <div className="flex-grow flex items-center justify-center bg-black rounded-lg overflow-hidden relative min-h-[60vh]">
+                 {activeImageId ? (
+                    <AsyncImage 
+                        key={activeImageId}
+                        imageId={activeImageId} 
+                        alt={activeScene?.description || 'Scene image'} 
+                        className="w-full h-full object-contain animate-fade-in"
+                    />
+                ) : (
+                    <div className='text-gray-500'>
+                        {activeScene ? "No image for this scene." : "Press play to start."}
+                    </div>
+                )}
+            </div>
+            
+            {/* Info Panel */}
+            <div className="bg-white/5 p-4 rounded-lg text-white min-h-[120px]">
+                <p className="font-bold text-lg text-cyan-300">{activeScene?.timestamp || "---"}</p>
+                <p className="text-sm italic text-purple-300 mb-2">{activeScene?.lyric ? `♪ ${activeScene.lyric} ♪` : ''}</p>
+                <p className="text-sm text-gray-300">{activeScene?.description || '...'}</p>
+            </div>
 
-                <div className="w-full h-full flex items-center justify-center p-3">
-                   {imageId ? (
-                      <AsyncImage
-                        imageId={imageId}
-                        alt={`Scene ${scene.timestamp}`}
-                        className="w-full h-full object-cover rounded-sm transition-transform duration-300 group-hover:scale-105"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gray-800 rounded-sm flex items-center justify-center">
-                         <span className="text-gray-600 text-xs">No Image</span>
-                      </div>
-                    )}
+            {/* Player Controls */}
+            {audioUrl ? (
+                <div className="bg-white/5 p-3 rounded-lg flex items-center gap-4 text-white">
+                    <audio ref={audioRef} src={audioUrl} preload="auto" />
+                    <button onClick={handlePlayPause} className="p-2 rounded-full bg-cyan-600 hover:bg-cyan-500 transition-colors">
+                        {isPlaying ? <PauseIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
+                    </button>
+                    <span className="text-sm font-mono">{formatTime(currentTime)}</span>
+                    <input
+                        ref={scrubberRef}
+                        type="range"
+                        min="0"
+                        max={duration || 0}
+                        value={currentTime}
+                        onChange={handleScrubberChange}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full"
+                    />
+                    <span className="text-sm font-mono">{formatTime(duration)}</span>
                 </div>
-
-                 <div className="absolute bottom-3 left-3 right-3 bg-black/50 text-white text-xs text-center p-0.5 rounded-b-sm">
-                  {scene.timestamp}
+            ) : (
+                <div className="bg-gray-800 p-3 rounded-lg flex items-center justify-center gap-4 text-gray-400">
+                    <Spinner className="w-5 h-5" />
+                    <span>Loading Audio...</span>
                 </div>
-              </div>
-            );
-          })}
+            )}
         </div>
-      </div>
-    </section>
+        <style>{`.animate-fade-in { animation: fadeIn 0.5s ease-in-out; } @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }`}</style>
+    </div>
   );
 };
 
-export default Filmstrip;
+export default CinematicPreview;

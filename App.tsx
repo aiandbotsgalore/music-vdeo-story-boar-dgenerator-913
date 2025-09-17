@@ -2,12 +2,12 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Scene, Project, ProjectSnapshot } from './types';
 import { isProject } from './types';
-import { enhanceText, generateStoryboardFromBrief, generateImage, editImageWithMask, transcribeAudio, generateIdeaFromLyrics } from './services/geminiService';
+import { enhanceText, generateConceptFromBrief, generateStoryboardFromScenes, generateImage, editImageWithMask, transcribeAudio, generateIdeaFromLyrics } from './services/geminiService';
 import { dbService } from './services/dbService';
 import MagicWandIcon from './components/MagicWandIcon';
 import Spinner from './components/Spinner';
 import RegenerateIcon from './components/RegenerateIcon';
-import Filmstrip from './components/Filmstrip';
+import CinematicPreview from './components/Filmstrip';
 import ImageModal from './components/ImageModal';
 import ProjectSidebar from './components/ProjectSidebar';
 import AsyncImage from './components/AsyncImage';
@@ -15,6 +15,7 @@ import CameraIcon from './components/CameraIcon';
 import SceneBlock from './components/SceneBlock';
 import StartScreen from './components/StartScreen';
 import DownloadIcon from './components/DownloadIcon';
+import FilmIcon from './components/FilmIcon';
 
 declare var JSZip: any;
 
@@ -114,8 +115,10 @@ const CreativeBrief: React.FC<{
     enhancingState: { type: 'concept' | 'style' | 'character'; index?: number; field?: never } | { type: 'scene'; index: number; field: 'description' | 'actions' } | null;
     handleImageUpload: (e: React.ChangeEvent<HTMLInputElement>, field: 'characterReferenceImageId' | 'styleReferenceImageId') => void;
     removeReferenceImage: (field: 'characterReferenceImageId' | 'styleReferenceImageId') => void;
-    handleCreateStoryboard: () => void;
-    isGeneratingStoryboard: boolean;
+    handleGenerateConcept: () => void;
+    isGeneratingConcept: boolean;
+    handleGenerateScenes: () => void;
+    isGeneratingScenes: boolean;
 }> = ({
     currentProject,
     updateCurrentProject,
@@ -127,10 +130,14 @@ const CreativeBrief: React.FC<{
     enhancingState,
     handleImageUpload,
     removeReferenceImage,
-    handleCreateStoryboard,
-    isGeneratingStoryboard
+    handleGenerateConcept,
+    isGeneratingConcept,
+    handleGenerateScenes,
+    isGeneratingScenes,
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
+    const hasConcept = currentProject.concept && currentProject.narrativeArc;
+    const isGenerating = isGeneratingConcept || isGeneratingScenes;
 
     return (
         <section className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 shadow-lg mb-8">
@@ -143,12 +150,28 @@ const CreativeBrief: React.FC<{
             </button>
             {!isCollapsed && (
                 <>
-                    {currentProject.concept && (
-                        <div className="mb-6 bg-gray-900/50 p-4 rounded-lg border border-gray-600">
-                            <h3 className="text-lg font-semibold text-cyan-300">Generated Logline</h3>
-                            <p className="text-gray-300 italic">"{currentProject.concept}"</p>
-                            <h3 className="text-lg font-semibold text-cyan-300 mt-2">Generated Narrative Arc</h3>
-                            <p className="text-gray-300">{currentProject.narrativeArc}</p>
+                    {hasConcept && (
+                        <div className="mb-6 bg-gray-900/50 p-4 rounded-lg border border-gray-600 space-y-4">
+                            <div>
+                                <label htmlFor="logline-edit" className="text-lg font-semibold text-cyan-300">Generated Logline (Editable)</label>
+                                <textarea
+                                    id="logline-edit"
+                                    value={currentProject.concept}
+                                    onChange={(e) => updateCurrentProject({ concept: e.target.value })}
+                                    className="mt-2 w-full bg-gray-800 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 text-gray-300 italic"
+                                    rows={2}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="narrative-edit" className="text-lg font-semibold text-cyan-300">Generated Narrative Arc (Editable)</label>
+                                <textarea
+                                    id="narrative-edit"
+                                    value={currentProject.narrativeArc}
+                                    onChange={(e) => updateCurrentProject({ narrativeArc: e.target.value })}
+                                    className="mt-2 w-full bg-gray-800 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 text-gray-300"
+                                    rows={3}
+                                />
+                            </div>
                         </div>
                     )}
 
@@ -236,10 +259,24 @@ const CreativeBrief: React.FC<{
                             </div>
                         </div>
                     </div>
-                    <div className="mt-6 text-center">
-                        <button onClick={handleCreateStoryboard} disabled={isGeneratingStoryboard || isTranscribing || !currentProject.lyrics} className="w-full md:w-auto bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-bold py-3 px-8 rounded-lg hover:from-cyan-400 hover:to-purple-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3 mx-auto">
-                            {isGeneratingStoryboard ? (<><Spinner /><span>Generating Storyboard...</span></>) : (<span>{currentProject.storyboard.length > 0 ? 'Re-generate Storyboard' : 'Generate Storyboard'}</span>)}
+                    <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col items-center gap-4">
+                        <button
+                            onClick={handleGenerateConcept}
+                            disabled={isGenerating || isTranscribing || !currentProject.lyrics}
+                            className="w-full md:w-auto bg-gradient-to-r from-cyan-600 to-purple-700 text-white font-bold py-3 px-8 rounded-lg hover:from-cyan-500 hover:to-purple-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3 mx-auto"
+                        >
+                            {isGeneratingConcept ? (<><Spinner /><span>Generating Concept...</span></>) : (<span>{hasConcept ? 'Re-generate Concept' : '1. Generate Concept'}</span>)}
                         </button>
+
+                        {hasConcept && (
+                             <button
+                                onClick={handleGenerateScenes}
+                                disabled={isGenerating || isTranscribing || !currentProject.concept}
+                                className="w-full md:w-auto bg-gradient-to-r from-teal-500 to-sky-600 text-white font-bold py-3 px-8 rounded-lg hover:from-teal-400 hover:to-sky-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3 mx-auto"
+                            >
+                                {isGeneratingScenes ? (<><Spinner /><span>Generating Scenes...</span></>) : (<span>{currentProject.storyboard.length > 0 ? 'Re-generate Scenes' : '2. Generate Scenes'}</span>)}
+                            </button>
+                        )}
                     </div>
                 </>
             )}
@@ -247,7 +284,7 @@ const CreativeBrief: React.FC<{
     );
 };
 
-const MainContent: React.FC<{
+interface MainContentProps {
     currentProject: Project | null;
     updateCurrentProject: (updater: Partial<Project> | ((prevProject: Project) => Partial<Project>)) => void;
     handleEnhance: (type: 'concept' | 'style' | 'character', field: 'concept' | 'customStyle' | 'characterPrompt') => void;
@@ -258,8 +295,10 @@ const MainContent: React.FC<{
     enhancingState: { type: 'concept' | 'style' | 'character'; index?: number; field?: never } | { type: 'scene'; index: number; field: 'description' | 'actions' } | null;
     handleImageUpload: (e: React.ChangeEvent<HTMLInputElement>, field: 'characterReferenceImageId' | 'styleReferenceImageId') => void;
     removeReferenceImage: (field: 'characterReferenceImageId' | 'styleReferenceImageId') => void;
-    handleCreateStoryboard: () => void;
-    isGeneratingStoryboard: boolean;
+    handleGenerateConcept: () => void;
+    isGeneratingConcept: boolean;
+    handleGenerateScenes: () => void;
+    isGeneratingScenes: boolean;
     isBatchGenerating: boolean;
     generatingImages: Set<number>;
     imageGenerationErrors: Map<number, string>;
@@ -272,11 +311,14 @@ const MainContent: React.FC<{
     handleBatchGenerateImages: () => Promise<void>;
     handleEditImage: (sceneIndex: number, maskData: string, editPrompt: string) => Promise<void>;
     handleDownloadImage: (imageId: string) => Promise<void>;
-    handleFilmstripClick: (index: number) => void;
-    sceneRefs: React.MutableRefObject<(HTMLDivElement | null)[]>;
     handleDownloadAllImages: () => Promise<void>;
     isDownloadingAll: boolean;
-}> = ({
+    handleExportStoryboard: () => void;
+    isPreviewModeActive: boolean;
+    setIsPreviewModeActive: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const MainContent: React.FC<MainContentProps> = ({
     currentProject,
     updateCurrentProject,
     handleEnhance,
@@ -287,8 +329,10 @@ const MainContent: React.FC<{
     enhancingState,
     handleImageUpload,
     removeReferenceImage,
-    handleCreateStoryboard,
-    isGeneratingStoryboard,
+    handleGenerateConcept,
+    isGeneratingConcept,
+    handleGenerateScenes,
+    isGeneratingScenes,
     isBatchGenerating,
     generatingImages,
     imageGenerationErrors,
@@ -301,10 +345,11 @@ const MainContent: React.FC<{
     handleBatchGenerateImages,
     handleEditImage,
     handleDownloadImage,
-    handleFilmstripClick,
-    sceneRefs,
     handleDownloadAllImages,
     isDownloadingAll,
+    handleExportStoryboard,
+    isPreviewModeActive,
+    setIsPreviewModeActive,
 }) => {
 
     if (!currentProject) {
@@ -323,6 +368,8 @@ const MainContent: React.FC<{
             return acc + (scene.imageHistory?.flat().length || 0);
         }, 0);
     }, [currentProject.storyboard]);
+
+    const hasImages = useMemo(() => currentProject.storyboard.some(s => s.imageHistory && s.imageHistory.length > 0), [currentProject.storyboard]);
 
     return (
         <>
@@ -357,8 +404,10 @@ const MainContent: React.FC<{
                     enhancingState={enhancingState}
                     handleImageUpload={handleImageUpload}
                     removeReferenceImage={removeReferenceImage}
-                    handleCreateStoryboard={handleCreateStoryboard}
-                    isGeneratingStoryboard={isGeneratingStoryboard}
+                    handleGenerateConcept={handleGenerateConcept}
+                    isGeneratingConcept={isGeneratingConcept}
+                    handleGenerateScenes={handleGenerateScenes}
+                    isGeneratingScenes={isGeneratingScenes}
                 />
 
                 {currentProject.storyboard.length > 0 && (
@@ -377,6 +426,23 @@ const MainContent: React.FC<{
                                         <span>{`Generate All Images (${scenesWithoutImages} remaining)`}</span>
                                     )}
                                 </button>
+                                {hasImages && (
+                                    <button
+                                        onClick={() => setIsPreviewModeActive(true)}
+                                        disabled={!currentProject.audioId}
+                                        className="w-full md:w-auto bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-bold py-3 px-8 rounded-lg hover:from-cyan-400 hover:to-purple-500 transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={!currentProject.audioId ? "Upload audio to enable preview" : "Open cinematic preview"}
+                                    >
+                                        <FilmIcon className="w-5 h-5"/>
+                                        <span>Cinematic Preview</span>
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleExportStoryboard}
+                                    className="w-full md:w-auto bg-gray-700 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-600 transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
+                                >
+                                    Export JSON (Text Only)
+                                </button>
                                 <button
                                     onClick={handleDownloadAllImages}
                                     disabled={isDownloadingAll || imagesToDownloadCount === 0}
@@ -394,7 +460,6 @@ const MainContent: React.FC<{
                         {currentProject.storyboard.map((scene, index) => (
                             <SceneBlock
                                 key={index}
-                                ref={el => { sceneRefs.current[index] = el; }}
                                 scene={scene}
                                 index={index}
                                 enhancingState={enhancingState?.type === 'scene' && enhancingState.index === index ? enhancingState : null}
@@ -410,7 +475,6 @@ const MainContent: React.FC<{
                     </section>
                 )}
 
-                <Filmstrip scenes={currentProject.storyboard} onFrameClick={handleFilmstripClick} audioId={currentProject.audioId} />
             </main>
 
             {activeModalIndex !== null && currentProject.storyboard[activeModalIndex] && (
@@ -421,6 +485,14 @@ const MainContent: React.FC<{
                     onDownload={handleDownloadImage}
                     onEdit={handleEditImage}
                     isEditing={editingImageIndex === activeModalIndex}
+                />
+            )}
+            
+            {isPreviewModeActive && (
+                <CinematicPreview
+                    scenes={currentProject.storyboard}
+                    audioId={currentProject.audioId}
+                    onClose={() => setIsPreviewModeActive(false)}
                 />
             )}
         </>
@@ -434,7 +506,8 @@ const App: React.FC = () => {
     const [currentProjectIndex, setCurrentProjectIndex] = useState<number | null>(null);
 
     // Transient UI state
-    const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState<boolean>(false);
+    const [isGeneratingConcept, setIsGeneratingConcept] = useState<boolean>(false);
+    const [isGeneratingScenes, setIsGeneratingScenes] = useState<boolean>(false);
     const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
     const [isGeneratingIdea, setIsGeneratingIdea] = useState<boolean>(false);
     const [enhancingState, setEnhancingState] = useState<{ type: 'concept' | 'style' | 'character'; index?: number; field?: never } | { type: 'scene'; index: number; field: 'description' | 'actions' } | null>(null);
@@ -443,6 +516,7 @@ const App: React.FC = () => {
     const [imageGenerationErrors, setImageGenerationErrors] = useState<Map<number, string>>(new Map());
     const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
     const [isDownloadingAll, setIsDownloadingAll] = useState<boolean>(false);
+    const [isPreviewModeActive, setIsPreviewModeActive] = useState<boolean>(false);
 
 
     const [activeModalIndex, setActiveModalIndex] = useState<number | null>(null);
@@ -450,9 +524,9 @@ const App: React.FC = () => {
     const [dailyRequestCount, setDailyRequestCount] = useState<number>(0);
     const [deletingProjectIndex, setDeletingProjectIndex] = useState<number | null>(null);
 
-    const sceneRefs = useRef<(HTMLDivElement | null)[]>([]);
     const saveTimeoutRef = useRef<number | null>(null);
     const projectsRef = useRef(projects);
+    const isInitialMount = useRef(true);
 
     const currentProject = currentProjectIndex !== null ? projects[currentProjectIndex] : null;
     
@@ -501,53 +575,51 @@ const App: React.FC = () => {
     }, []);
 
 
-    // Load projects from localStorage on mount
+    // Load projects from IndexedDB on mount
     useEffect(() => {
-        try {
-            const savedProjectsJSON = localStorage.getItem('storyboardProjects');
-            if (savedProjectsJSON) {
-                const parsedData = JSON.parse(savedProjectsJSON);
-                const validProjects: Project[] = Array.isArray(parsedData) ? parsedData.filter(isProject) : [];
-                setProjects(validProjects);
-            }
-        } catch (error) {
-            console.error("Failed to load or parse projects from localStorage", error);
+        dbService.getProjects().then(projectsFromDb => {
+            const validProjects = Array.isArray(projectsFromDb) ? projectsFromDb.filter(isProject) : [];
+            setProjects(validProjects);
+        }).catch(error => {
+            console.error("Failed to load projects from IndexedDB", error);
             setProjects([]);
-        }
+        });
     }, []);
 
+    // Keep a ref to projects for callbacks that shouldn't re-run on every project change
     useEffect(() => {
         projectsRef.current = projects;
     }, [projects]);
-
-    // Auto-save on change (debounced) and on page exit
-    useEffect(() => {
-        const handleBeforeUnload = () => {
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-            }
-            const currentProjects = projectsRef.current;
-            if (currentProjects.length > 0) {
-                try {
-                    localStorage.setItem('storyboardProjects', JSON.stringify(currentProjects));
-                } catch (error) {
-                    console.error("Failed to save projects on unload", error);
-                }
-            } else if (localStorage.getItem('storyboardProjects')) {
-                localStorage.removeItem('storyboardProjects');
-            }
-        };
-        
-        window.addEventListener('beforeunload', handleBeforeUnload);
-
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-             if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-            }
-        };
-    }, []);
     
+    // Centralized auto-save logic that triggers on any change to the projects array
+    useEffect(() => {
+        // Don't save on the initial render cycle.
+        // The load effect will populate projects, and its state update will trigger this effect again.
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
+
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+
+        setSaveStatus('saving');
+        saveTimeoutRef.current = window.setTimeout(async () => {
+            try {
+                // Use the state directly, as this effect is dependent on it
+                await dbService.saveProjects(projects);
+                setSaveStatus('saved');
+            } catch (error) {
+                console.error("Failed to auto-save projects to IndexedDB", error);
+                setSaveStatus('error');
+                if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+                    alert("Storage limit reached. Could not save project changes. Please delete old projects or images to free up space.");
+                }
+            }
+        }, 1000); // Save 1 second after last change
+    }, [projects]);
+
     const updateCurrentProject = useCallback((updater: Partial<Project> | ((prevProject: Project) => Partial<Project>)) => {
         if (currentProjectIndex === null) return;
 
@@ -556,37 +628,10 @@ const App: React.FC = () => {
                 if (index !== currentProjectIndex) return proj;
                 const updatedFields = typeof updater === 'function' ? updater(proj) : updater;
                 
-                // FIX: The original implementation had a faulty conditional block that returned a partial object,
-                // causing a TypeScript error. This has been replaced with a single, safe return statement.
-                // By spreading the original project, then the updates, and finally re-asserting the original ID,
-                // we ensure a complete `Project` object is always created and the ID remains immutable.
                 return { ...proj, ...updatedFields, id: proj.id };
             })
         );
-
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-
-        setSaveStatus('saving');
-        saveTimeoutRef.current = window.setTimeout(() => {
-            try {
-                if (projectsRef.current.length > 0) {
-                    localStorage.setItem('storyboardProjects', JSON.stringify(projectsRef.current));
-                    setSaveStatus('saved');
-                }
-            } catch (error) {
-                console.error("Failed to auto-save projects to localStorage", error);
-                setSaveStatus('error');
-            }
-        }, 2000); // Save 2 seconds after last change
     }, [currentProjectIndex]);
-
-    useEffect(() => {
-        if (currentProject) {
-            sceneRefs.current = sceneRefs.current.slice(0, currentProject.storyboard.length);
-        }
-    }, [currentProject?.storyboard]);
 
     const handleNewProject = () => {
         const newProject = createNewProject();
@@ -704,11 +749,26 @@ const App: React.FC = () => {
     }, [currentProject, isTranscribing, updateCurrentProject]);
 
 
-    const handleCreateStoryboard = useCallback(async () => {
-        if (!currentProject || !currentProject.lyrics) {
-            alert('Please provide timestamped lyrics to generate a storyboard.');
-            return;
-        }
+    const handleGenerateConcept = useCallback(async () => {
+        if (!currentProject) return;
+
+        setIsGeneratingConcept(true);
+        updateCurrentProject({ storyboard: [], concept: '', narrativeArc: '' });
+        const finalStylePrompt = currentProject.selectedStyle === 'Custom' ? currentProject.customStyle : STYLE_PRESETS[currentProject.selectedStyle];
+
+        const { logline, narrativeArc } = await generateConceptFromBrief(
+            currentProject.ideaPrompt,
+            currentProject.lyrics,
+            currentProject.characterPrompt,
+            finalStylePrompt
+        );
+        updateCurrentProject({ concept: logline, narrativeArc });
+        setIsGeneratingConcept(false);
+
+    }, [currentProject, updateCurrentProject]);
+    
+    const handleGenerateScenes = useCallback(async () => {
+        if (!currentProject || !currentProject.concept) return;
 
         // Save snapshot before major changes
         const snapshotsJSON = localStorage.getItem(`projectSnapshots_${currentProject.id}`);
@@ -719,25 +779,22 @@ const App: React.FC = () => {
         snapshots.push({ timestamp: Date.now(), project: { ...currentProject } });
         if (snapshots.length > 3) snapshots.shift(); // Limit to 3 versions
         localStorage.setItem(`projectSnapshots_${currentProject.id}`, JSON.stringify(snapshots));
-        
-        setIsGeneratingStoryboard(true);
-        updateCurrentProject({ storyboard: [], concept: '', narrativeArc: '' });
+
+        setIsGeneratingScenes(true);
         const finalStylePrompt = currentProject.selectedStyle === 'Custom' ? currentProject.customStyle : STYLE_PRESETS[currentProject.selectedStyle];
-        
-        const { logline, narrativeArc, storyboard } = await generateStoryboardFromBrief(
-            currentProject.ideaPrompt,
-            currentProject.lyrics, 
-            currentProject.characterPrompt, 
+
+        const { storyboard } = await generateStoryboardFromScenes(
+            currentProject.concept,
+            currentProject.narrativeArc,
+            currentProject.lyrics,
+            currentProject.characterPrompt,
             finalStylePrompt
         );
 
-        updateCurrentProject({ 
-            storyboard, 
-            concept: logline,
-            narrativeArc
-        });
-        setIsGeneratingStoryboard(false);
+        updateCurrentProject({ storyboard });
+        setIsGeneratingScenes(false);
     }, [currentProject, updateCurrentProject]);
+
 
     const handleSceneFieldChange = useCallback((index: number, field: 'description' | 'actions', value: string) => {
         updateCurrentProject(prevProject => {
@@ -1063,10 +1120,6 @@ const App: React.FC = () => {
         }
     };
     
-    const handleFilmstripClick = (index: number) => {
-        sceneRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
-
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'characterReferenceImageId' | 'styleReferenceImageId') => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -1130,6 +1183,35 @@ const App: React.FC = () => {
         updateCurrentProject({ [field]: null });
     };
 
+    const handleExportStoryboard = useCallback(() => {
+        if (!currentProject || currentProject.storyboard.length === 0) {
+            alert('No storyboard available to export.');
+            return;
+        }
+        const exportData = {
+            logline: currentProject.concept,
+            narrativeArc: currentProject.narrativeArc,
+            storyboard: currentProject.storyboard.map(scene => ({
+                timestamp: scene.timestamp,
+                description: scene.description,
+                actions: scene.actions,
+                cameraAngle: scene.cameraAngle,
+                lyric: scene.lyric,
+                section: scene.section,
+            })),
+        };
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${currentProject.name.replace(/\s+/g, '_')}_storyboard.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, [currentProject]);
+
     return (
         <div className="flex min-h-screen bg-gray-900 text-gray-200 font-sans">
             {view === 'start_screen' ? (
@@ -1173,8 +1255,10 @@ const App: React.FC = () => {
                                 enhancingState={enhancingState}
                                 handleImageUpload={handleImageUpload}
                                 removeReferenceImage={removeReferenceImage}
-                                handleCreateStoryboard={handleCreateStoryboard}
-                                isGeneratingStoryboard={isGeneratingStoryboard}
+                                handleGenerateConcept={handleGenerateConcept}
+                                isGeneratingConcept={isGeneratingConcept}
+                                handleGenerateScenes={handleGenerateScenes}
+                                isGeneratingScenes={isGeneratingScenes}
                                 isBatchGenerating={isBatchGenerating}
                                 generatingImages={generatingImages}
                                 imageGenerationErrors={imageGenerationErrors}
@@ -1187,10 +1271,11 @@ const App: React.FC = () => {
                                 handleBatchGenerateImages={handleBatchGenerateImages}
                                 handleEditImage={handleEditImage}
                                 handleDownloadImage={handleDownloadImage}
-                                handleFilmstripClick={handleFilmstripClick}
-                                sceneRefs={sceneRefs}
                                 handleDownloadAllImages={handleDownloadAllImages}
                                 isDownloadingAll={isDownloadingAll}
+                                handleExportStoryboard={handleExportStoryboard}
+                                isPreviewModeActive={isPreviewModeActive}
+                                setIsPreviewModeActive={setIsPreviewModeActive}
                             />
                         </div>
                     </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Scene } from '../types';
 import MagicWandIcon from './MagicWandIcon';
@@ -32,8 +33,7 @@ interface SceneBlockProps {
     onImageClick: (index: number) => void;
 }
 
-const SceneBlock = React.forwardRef<HTMLDivElement, SceneBlockProps>(
-    ({ scene, index, enhancingState, isGeneratingImage, imageGenerationErrorMessage, onFieldChange, onEnhance, onGenerateImage, onRegenerateImage, onImageClick }, ref) => {
+const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, isGeneratingImage, imageGenerationErrorMessage, onFieldChange, onEnhance, onGenerateImage, onRegenerateImage, onImageClick }) => {
     
     const [activeVariantIndex, setActiveVariantIndex] = useState(0);
     const latestImageSet = scene.imageHistory?.[scene.imageHistory.length - 1] || [];
@@ -52,7 +52,7 @@ const SceneBlock = React.forwardRef<HTMLDivElement, SceneBlockProps>(
     const isEnhancingAnything = !!enhancingState;
 
     return (
-    <div ref={ref} className={`bg-gray-800 rounded-lg p-4 border-2 ${sectionClass} flex flex-col md:flex-row gap-4 transition-all`}>
+    <div className={`bg-gray-800 rounded-lg p-4 border-2 ${sectionClass} flex flex-col md:flex-row gap-4 transition-all`}>
         <div className="flex-1 space-y-2">
             <div className="flex justify-between items-start">
                 <h3 className="font-bold text-lg text-cyan-400">{scene.timestamp}</h3>
@@ -186,6 +186,6 @@ const SceneBlock = React.forwardRef<HTMLDivElement, SceneBlockProps>(
             </div>
         </div>
     </div>
-)});
+)};
 
 export default React.memo(SceneBlock);

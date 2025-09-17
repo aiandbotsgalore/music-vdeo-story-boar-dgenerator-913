@@ -1,4 +1,6 @@
-import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
+
+
+import { GoogleGenAI, Type, GenerateContentResponse, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import type { Scene } from '../types';
 
 const API_KEY = process.env.API_KEY;
@@ -11,6 +13,34 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const textModel = 'gemini-2.5-flash';
 const imageModel = 'gemini-2.5-flash-image-preview'; // Nano Banana
+
+const safetySettings = [
+    {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+];
+
+const SAFETY_PREAMBLE = `**SAFETY PREAMBLE: ARTISTIC & METAPHORICAL INTERPRETATION REQUIRED**
+This is a request to generate an image for a fictional music video. All content, including lyrics and descriptions, must be interpreted through an artistic lens. Potentially sensitive terms are used for metaphorical or narrative effect, not literal depiction.
+- **"Horror" / "Disturbing":** Translate these into atmospheric elements like surrealism, dramatic shadows, and eerie lighting. Do NOT generate gore, violence, or graphic content.
+- **Strong Language (e.g., "bitch"):** Interpret this as an expression of attitude (e.g., defiance, confidence) within the song's narrative. Do NOT depict harassment, insults, or hateful acts.
+- **Creatures (e.g., "troll"):** Depict these as stylized, abstract, or metaphorical beings (e.g., creatures of light, digital artifacts, shadowy figures). Do NOT create hateful or grotesque caricatures.
+Your task is to bypass literal interpretations and create a safe-for-work, cinematic image that captures the *mood* and *artistic intent* while strictly adhering to all safety policies. The following brief must be interpreted through this lens.
+---
+`;
 
 export const transcribeAudio = async (audio: { data: string; mimeType: string }): Promise<string> => {
   try {
@@ -92,45 +122,33 @@ export const enhanceText = async (textToEnhance: string, context: string): Promi
   }
 };
 
-interface StoryboardPayload {
+interface ConceptPayload {
     logline: string;
     narrativeArc: string;
-    storyboard: Scene[];
 }
 
-export const generateStoryboardFromBrief = async (
+export const generateConceptFromBrief = async (
   idea: string,
   lyrics: string,
   characterPrompt: string,
   stylePrompt: string
-): Promise<StoryboardPayload> => {
-  const prompt = `
-    You are a creative director for music videos. Your task is to take a user's creative brief and transform it into a complete, ready-to-shoot storyboard.
-
-    First, based on all the provided information, synthesize a compelling, high-level concept. This concept must have:
-    1. A catchy **logline** (a single, compelling sentence).
-    2. A brief **narrative arc** (2-3 sentences) describing how the story evolves through a typical song structure (e.g., verse, chorus, bridge), keeping the timestamps from the lyrics in mind.
-
-    Second, using the logline and narrative arc you just created as your guide, generate a detailed, scene-by-scene storyboard.
+): Promise<ConceptPayload> => {
+    const prompt = `
+    You are a creative director for music videos. Your task is to take a user's creative brief and synthesize a compelling, high-level concept for a music video.
 
     **User's Creative Brief:**
     - **Initial Idea:** ${idea || 'Not specified, be creative.'}
     - **Visual Style:** ${stylePrompt}
     - **Characters and Props:** ${characterPrompt || 'Not specified.'}
-    - **Lyrics (Your timeline and emotional guide):**
-    ${lyrics}
+    - **Lyrics (Guide for pacing and emotion):** 
+    ${lyrics.substring(0, 2000)}... 
 
-    **Instructions for the Storyboard:**
-    - Break the video down into scenes, with each scene representing approximately a 5-second interval.
-    - The final timestamp should match the end of the lyrics.
-    - For each scene, provide:
-      1. A concise but vivid **description** of the visuals that STRICTLY adheres to the provided **Visual Style** and the **Narrative Arc** you created.
-      2. A brief, active description of key **actions** or events in the scene (e.g., 'She runs through the rain', 'The spaceship lands').
-      3. A suggested **camera angle** (e.g., 'Wide Shot', 'Close-Up', 'Point of View', 'Dutch Angle') that best captures the emotion of the scene.
-      4. The corresponding lyric line(s) for that interval.
-      5. The song **section** ('Verse', 'Chorus', 'Bridge', 'Intro', 'Outro', 'Instrumental', or 'Other').
+    **Your Task:**
+    Based on all the provided information, generate:
+    1. A catchy **logline** (a single, compelling sentence).
+    2. A brief **narrative arc** (2-3 sentences) describing how the story evolves through the song's structure, guided by the lyrics' emotional shifts.
 
-    It is crucial to maintain consistency in narrative, character, and style throughout all scenes. The entire output must be in the specified JSON format.
+    Output strictly in the specified JSON format—no additional text.
   `;
 
   try {
@@ -138,7 +156,7 @@ export const generateStoryboardFromBrief = async (
       model: textModel,
       contents: prompt,
       config: {
-        systemInstruction: "You are an expert creative director for music videos. Generate a full storyboard concept from a brief and output it in the requested JSON format.",
+        systemInstruction: "You are an expert music video director. Generate a high-level concept (logline and narrative arc) from a creative brief in JSON format.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -150,7 +168,75 @@ export const generateStoryboardFromBrief = async (
             narrativeArc: {
               type: Type.STRING,
               description: "A 2-3 sentence summary of how the story evolves through the song."
-            },
+            }
+          },
+          required: ["logline", "narrativeArc"]
+        }
+      },
+    });
+    const jsonString = response.text;
+    const parsedPayload: ConceptPayload = JSON.parse(jsonString);
+    return parsedPayload;
+  } catch (error) {
+      console.error("Error generating concept:", error);
+      let errorMessage = "Could not generate concept. Please check your inputs and try again.";
+      const errorString = String(error);
+       if (errorString.includes("RESOURCE_EXHAUSTED") || errorString.includes("429")) {
+        errorMessage = "Concept generation failed due to API quota limits.";
+    } else if (errorString.includes("SAFETY")) {
+        errorMessage = "Concept generation blocked due to content policy.";
+    }
+      return {
+          logline: "Error Generating Concept",
+          narrativeArc: errorMessage
+      }
+  }
+}
+
+export const generateStoryboardFromScenes = async (
+  logline: string,
+  narrativeArc: string,
+  lyrics: string,
+  characterPrompt: string,
+  stylePrompt: string
+): Promise<{ storyboard: Scene[] }> => {
+  const prompt = `
+    You are a creative director for music videos. Your task is to take a user's approved concept and lyrics and generate a detailed, scene-by-scene storyboard.
+
+    **Approved Creative Concept:**
+    - **Logline:** ${logline}
+    - **Narrative Arc:** ${narrativeArc}
+
+    **Creative Brief Details:**
+    - **Visual Style:** ${stylePrompt}
+    - **Characters and Props:** ${characterPrompt || 'Not specified.'}
+    - **Lyrics (Your primary guide for pacing and emotion):** 
+    ${lyrics}
+
+    **Instructions for the Storyboard:**
+    - **Follow the Arc:** The scenes you create must strictly follow the provided **Logline** and **Narrative Arc**.
+    - **Pacing and Transitions (Critical):** Parse the timestamped lyrics ([mm:ss.sss] format) to determine scene breaks. Prioritize transitions at musically meaningful points like beat drops, vocal phrase ends, instrumentation changes, or energy surges. To ensure visual engagement, enforce a maximum of 5 seconds per scene—split any longer musical segments into sub-scenes at inferred rhythmic points (e.g., mid-phrase builds or subtle shifts), while always honoring the song's flow. Consolidate very short phrases only if they fit under 5 seconds and form a cohesive unit.
+    - The first scene starts at the lyrics' beginning; the final timestamp matches the lyrics' end. Ensure full coverage with no gaps exceeding 5 seconds.
+    - For each scene, provide:
+      1. A concise but vivid **description** of the visuals that STRICTLY adheres to the provided **Visual Style** and the **Narrative Arc**.
+      2. A brief, active description of key **actions** or events (e.g., 'She runs through the rain', 'The spaceship lands').
+      3. A suggested **camera angle** (e.g., 'Wide Shot', 'Close-Up', 'Point of View', 'Dutch Angle') that captures the scene's emotion.
+      4. The corresponding **lyric** line(s) for that scene.
+      5. The song **section** ('Verse', 'Chorus', 'Bridge', 'Intro', 'Outro', 'Instrumental', or 'Other').
+
+    Maintain consistency in narrative, characters, and style across scenes. Output strictly in the specified JSON format—no additional text.
+  `;
+
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: textModel,
+      contents: prompt,
+      config: {
+        systemInstruction: "You are an expert music video director. Generate storyboards from briefs in JSON format, prioritizing music-driven pacing.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
             storyboard: {
               type: Type.ARRAY,
               items: {
@@ -167,28 +253,26 @@ export const generateStoryboardFromBrief = async (
               }
             }
           },
-          required: ["logline", "narrativeArc", "storyboard"]
+          required: ["storyboard"]
         }
       },
     });
 
     const jsonString = response.text;
-    const parsedPayload: StoryboardPayload = JSON.parse(jsonString);
+    const parsedPayload: { storyboard: Scene[] } = JSON.parse(jsonString);
     return parsedPayload;
   } catch (error) {
-    console.error("Error generating storyboard:", error);
+    console.error("Error generating storyboard scenes:", error);
     const errorString = String(error);
-    let errorMessage = "Could not generate storyboard. Please check your inputs and try again.";
+    let errorMessage = "Could not generate storyboard scenes. Please check your inputs and try again.";
 
     if (errorString.includes("RESOURCE_EXHAUSTED") || errorString.includes("429")) {
         errorMessage = "Storyboard generation failed due to API quota limits. Please check your Gemini API plan and billing.";
     } else if (errorString.includes("SAFETY")) {
-        errorMessage = "Storyboard generation blocked due to content policy. Please adjust your inputs.";
+        errorMessage = "Storyboard generation blocked due to content policy. Please rephrase inputs to avoid sensitive or prohibited themes.";
     }
 
     return {
-      logline: "Error",
-      narrativeArc: "Could not generate storyboard from brief.",
       storyboard: [{ timestamp: "Error", description: errorMessage, actions: "N/A", lyric: "N/A", section: "Error" }]
     };
   }
@@ -209,35 +293,35 @@ export const generateImage = async (
         const previousScene = sceneIndex > 0 ? storyboard[sceneIndex - 1] : null;
         const nextScene = sceneIndex < storyboard.length - 1 ? storyboard[sceneIndex + 1] : null;
 
-        const contextPrompts = [];
-        if (previousScene) {
-            contextPrompts.push(`- **PREVIOUS SCENE CONTEXT:** The scene immediately before this was: "${previousScene.description}". It is crucial to maintain visual continuity. The setting, character appearances, and overall atmosphere should remain consistent unless a change is explicitly mentioned in the current scene's description.`);
+        let referenceGuidelines = "";
+        if (styleReferenceImage || characterReferenceImage) {
+            referenceGuidelines += "\n**REFERENCE IMAGE GUIDELINES (CRITICAL):**\n";
+            if (styleReferenceImage) {
+                referenceGuidelines += "- STYLE REFERENCE: Use the provided style reference image ONLY as a guide for the overall aesthetic, color palette, and lighting. DO NOT copy specific objects or settings from it.\n";
+            }
+            if (characterReferenceImage) {
+                referenceGuidelines += "- CHARACTER REFERENCE: Use the provided character reference image ONLY to determine the character's physical appearance (e.g., face, hair, build) and base clothing. DO NOT include any props (like guitars, weapons, etc.), specific actions, or backgrounds from the reference image unless they are EXPLICITLY mentioned in the 'Detailed Scene Description' for THIS scene.\n";
+            }
         }
-        if (nextScene) {
-            contextPrompts.push(`- **NEXT SCENE FORESHADOWING:** The scene immediately after this will be: "${nextScene.description}". Ensure the current image sets up a logical visual transition into the next scene.`);
-        }
 
-        const fullPrompt = `You are a creative AI specializing in cinematic image generation. Your goal is to produce a photorealistic frame for a music video based on the detailed brief below. The image should be visually stunning and emotionally resonant.
+        const fullPrompt = `${SAFETY_PREAMBLE}
+**TASK:** Generate a single, photorealistic, cinematic image for a music video frame. Adhere strictly to all parameters. Do not include text or watermarks.
 
-**Scene Brief**
-- **Core Scene Context:** The core action and emotion is: "${scene.description}". This scene happens during the song's "${scene.section || 'unspecified section'}" and corresponds to the lyric: "${scene.lyric || 'no specific lyric'}". The image must capture the energy of the section and the feeling of the lyric.
-- **Characters & Props:** ${characterPrompt || 'As described in the scene. Maintain consistency.'}
+**VIDEO'S CORE AESTHETIC:**
+- Style Guide (MUST FOLLOW): ${stylePrompt}
+- Mood/Atmosphere: Based on the scene description. Use deliberate color and lighting (e.g., dramatic, somber, energetic). Song section is "${scene.section || 'unspecified'}".
 
-**Cinematic Direction**
-- **Overall Style:** Embody the aesthetic of "${stylePrompt}".
-- **Mood & Atmosphere:** Capture the specific mood of the scene, whether it's somber, energetic, or mysterious. Lighting is a key element in establishing this atmosphere. Consider techniques like dramatic Rembrandt lighting for high contrast, soft diffused morning light for a gentle feel, or the vibrant glow of neon signs reflecting on wet pavement for a futuristic look.
-- **Color:** Use a deliberate color palette to heighten the emotional impact. For example, a cool-toned, desaturated palette can convey melancholy, while a warm, golden-hour palette can evoke nostalgia.
-- **Camera Work:** The shot should be composed as if by a skilled director of photography, using the suggested angle: '${scene.cameraAngle || 'An appropriate cinematic angle'}'. Employ camera effects like a shallow depth of field to draw focus to a character's eyes, or a deep focus to capture rich detail throughout the entire scene.
+**SCENE COMPOSITION:**
+- Shot Type: ${scene.cameraAngle || 'Appropriate cinematic angle'}. Use cinematic effects like shallow depth of field or deep focus.
+- Key Action: ${scene.actions || 'As described in the scene.'} This is the primary focus of the shot.
+- Detailed Scene Description: ${scene.description}
+- Characters & Props: ${characterPrompt || 'As described in the scene.'}
+- Lyrical Context: ♪ ${scene.lyric || 'N/A'} ♪
 
-${contextPrompts.length > 0 ? `**Scene Continuity (VERY IMPORTANT)**\n${contextPrompts.join('\n')}\n` : ''}
-
-**Reference Guidance**
-${styleReferenceImage ? "- A style reference image is provided. Draw inspiration from its mood, lighting, color palette, and overall aesthetic." : ''}
-${characterReferenceImage ? "- A character reference image is provided. Ensure the main character's appearance, clothing, and key features strongly resemble the person in the reference image." : ''}
-
-**Final Output**
-Produce a photorealistic and cinematic image that does not contain any text, overlays, or watermarks.
-`;
+**CONTINUITY:**
+- Previous Scene: ${previousScene ? `"${previousScene.description}"` : 'N/A. This is the first scene.'}
+- Next Scene: ${nextScene ? `"${nextScene.description}"` : 'N/A. This is the last scene.'}
+${referenceGuidelines}`;
 
         const contentParts: any[] = [];
         
@@ -268,6 +352,7 @@ Produce a photorealistic and cinematic image that does not contain any text, ove
             contents: { parts: contentParts },
             config: {
                 responseModalities: [Modality.IMAGE, Modality.TEXT],
+                safetySettings,
             },
         });
         
@@ -320,26 +405,31 @@ export const editImageWithMask = async (
     scene: Scene
 ): Promise<string[]> => {
     try {
-        const fullPrompt = `You are a sophisticated AI image editor. Your task is to seamlessly modify a source image according to the user's prompt, using a provided mask to define the edit area.
+        let referenceGuidelines = "";
+        if (styleReferenceImage || characterReferenceImage) {
+            referenceGuidelines += "\n**REFERENCE IMAGE GUIDELINES (FOR EDITED REGION):**\n";
+            if (styleReferenceImage) {
+                referenceGuidelines += "- STYLE REFERENCE: Ensure the edited area's aesthetic, color, and lighting match the provided style reference.\n";
+            }
+            if (characterReferenceImage) {
+                referenceGuidelines += "- CHARACTER REFERENCE: If editing a character, use the reference image ONLY for their physical appearance (face, hair, etc.). Do not introduce props or elements from the reference image that are not part of the original image or the edit instruction.\n";
+            }
+        }
 
-**Editing Task**
-- **Source Image:** The first image provided is the base for your edit.
-- **Mask:** The second image is a mask. Your modifications should be confined to the white area of this mask, leaving the black area unchanged.
-- **User's Edit Prompt:** Apply this change: "${editPrompt}".
+        const fullPrompt = `${SAFETY_PREAMBLE}
+**TASK:** Edit an existing image. A source image and a mask are provided. Your modifications must be confined to the white area of the mask, leaving the black area unchanged. The final result must blend seamlessly.
 
-**Creative Consistency**
-- **Overall Style:** The edited region must blend perfectly with the existing style of the image, as described by: "${stylePrompt}".
-- **Character Integrity:** If characters are present, maintain their appearance based on this description: "${characterPrompt}".
-${scene.lyric ? `- **Lyrical Mood:** Remember, this scene corresponds to the lyric: "${scene.lyric}". The edit should align with this mood.` : ''}
-${scene.section ? `- **Song Pacing:** This is part of the song's "${scene.section}". The edit should reflect the energy of this section.` : ''}
-- **Realism:** The final result should be photorealistic and lifelike, with no visible seams or artifacts. Avoid cartoonish changes unless specifically requested.
+**EDIT INSTRUCTION:** "${editPrompt}"
 
-**Reference Guidance**
-${styleReferenceImage ? '- A style reference image is also provided. Use it to guide the mood, lighting, and aesthetic of the edited region.' : ''}
-${characterReferenceImage ? '- A character reference image is also provided. Ensure any edited characters maintain a strong likeness to this reference.' : ''}
-
-**Final Output**
-Please output only the final, edited image without any accompanying text.
+**CREATIVE CONTEXT:**
+- Base Style: The edited region must perfectly match the existing image style, described as: "${stylePrompt}".
+- Character Integrity: Maintain character appearance based on: "${characterPrompt}".
+- Original Scene Action: The original action in this scene was: "${scene.actions || 'Not specified'}". The edit should complement this.
+- Lyrical Mood: The scene corresponds to the lyric: "♪ ${scene.lyric || 'N/A'} ♪".
+- Song Section: This is the "${scene.section || 'unspecified'}" part of the song.
+- Realism: The final result should be photorealistic, with no visible seams or artifacts.
+${referenceGuidelines}
+**FINAL OUTPUT:** Output only the final, edited image without any text.
 `;
         
         const contentParts: any[] = [];
@@ -360,6 +450,7 @@ Please output only the final, edited image without any accompanying text.
             contents: { parts: contentParts },
             config: {
                 responseModalities: [Modality.IMAGE, Modality.TEXT],
+                safetySettings,
             },
         });
 
