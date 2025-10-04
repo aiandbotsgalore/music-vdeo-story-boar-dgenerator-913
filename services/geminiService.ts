@@ -12,7 +12,8 @@ if (!API_KEY) {
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const textModel = 'gemini-2.5-flash';
-const imageModel = 'gemini-2.5-flash-image-preview'; // Nano Banana
+// FIX: Updated image model name to 'gemini-2.5-flash-image' to align with the latest guidelines and remove the '-preview' suffix.
+const imageModel = 'gemini-2.5-flash-image'; // Nano Banana
 
 const safetySettings = [
     {
@@ -215,8 +216,7 @@ export const generateStoryboardFromScenes = async (
 
     **Instructions for the Storyboard:**
     - **Follow the Arc:** The scenes you create must strictly follow the provided **Logline** and **Narrative Arc**.
-    - **Pacing and Transitions (Critical):** Parse the timestamped lyrics ([mm:ss.sss] format) to determine scene breaks. Prioritize transitions at musically meaningful points like beat drops, vocal phrase ends, instrumentation changes, or energy surges. To ensure visual engagement, enforce a maximum of 5 seconds per scene—split any longer musical segments into sub-scenes at inferred rhythmic points (e.g., mid-phrase builds or subtle shifts), while always honoring the song's flow. Consolidate very short phrases only if they fit under 5 seconds and form a cohesive unit.
-    - The first scene starts at the lyrics' beginning; the final timestamp matches the lyrics' end. Ensure full coverage with no gaps exceeding 5 seconds.
+    - **Pacing and Transitions (Critical):** Parse the timestamped lyrics ([mm:ss.sss] format) to determine scene breaks. Prioritize transitions at musically meaningful points like beat drops, vocal phrase ends, instrumentation changes, or energy surges. To ensure visual engagement, enforce a maximum of 5 seconds per scene—split any longer musical segments into sub-scenes at inferred rhythmic points (e.g., mid-phrase builds or subtle shifts), while always honoring the song's flow. Consolidate very short phrases only if they fit under 5 seconds and form a cohesive unit. The first scene starts at the lyrics' beginning; the final timestamp matches the lyrics' end. Ensure full coverage with no gaps exceeding 5 seconds.
     - For each scene, provide:
       1. A concise but vivid **description** of the visuals that STRICTLY adheres to the provided **Visual Style** and the **Narrative Arc**.
       2. A brief, active description of key **actions** or events (e.g., 'She runs through the rain', 'The spaceship lands').
@@ -287,22 +287,28 @@ export const generateImage = async (
     characterPrompt: string,
     numberOfVariants: number,
     characterReferenceImage: { data: string; mimeType: string } | null,
-    styleReferenceImage: { data: string; mimeType: string } | null
+    styleReferenceImage: { data: string; mimeType: string } | null,
+    forceCharacterInScenes: boolean
 ): Promise<string[]> => {
     try {
         const previousScene = sceneIndex > 0 ? storyboard[sceneIndex - 1] : null;
         const nextScene = sceneIndex < storyboard.length - 1 ? storyboard[sceneIndex + 1] : null;
 
         let referenceGuidelines = "";
-        if (styleReferenceImage || characterReferenceImage) {
+        if (styleReferenceImage || (forceCharacterInScenes && characterReferenceImage)) {
             referenceGuidelines += "\n**REFERENCE IMAGE GUIDELINES (CRITICAL):**\n";
             if (styleReferenceImage) {
                 referenceGuidelines += "- STYLE REFERENCE: Use the provided style reference image ONLY as a guide for the overall aesthetic, color palette, and lighting. DO NOT copy specific objects or settings from it.\n";
             }
-            if (characterReferenceImage) {
+            if (forceCharacterInScenes && characterReferenceImage) {
                 referenceGuidelines += "- CHARACTER REFERENCE: Use the provided character reference image ONLY to determine the character's physical appearance (e.g., face, hair, build) and base clothing. DO NOT include any props (like guitars, weapons, etc.), specific actions, or backgrounds from the reference image unless they are EXPLICITLY mentioned in the 'Detailed Scene Description' for THIS scene.\n";
             }
         }
+        
+        const charactersAndPropsLine = forceCharacterInScenes
+            ? `- Characters & Props: ${characterPrompt || 'As described in the scene.'}`
+            : `- Characters & Props: As described in the scene. Only include characters if they are explicitly mentioned in the "Detailed Scene Description".`;
+
 
         const fullPrompt = `${SAFETY_PREAMBLE}
 **TASK:** Generate a single, photorealistic, cinematic image for a music video frame. Adhere strictly to all parameters. Do not include text or watermarks.
@@ -315,7 +321,7 @@ export const generateImage = async (
 - Shot Type: ${scene.cameraAngle || 'Appropriate cinematic angle'}. Use cinematic effects like shallow depth of field or deep focus.
 - Key Action: ${scene.actions || 'As described in the scene.'} This is the primary focus of the shot.
 - Detailed Scene Description: ${scene.description}
-- Characters & Props: ${characterPrompt || 'As described in the scene.'}
+${charactersAndPropsLine}
 - Lyrical Context: ♪ ${scene.lyric || 'N/A'} ♪
 
 **CONTINUITY:**
@@ -334,7 +340,7 @@ ${referenceGuidelines}`;
             });
         }
         
-        if (characterReferenceImage) {
+        if (forceCharacterInScenes && characterReferenceImage) {
             contentParts.push({
                 inlineData: {
                     data: characterReferenceImage.data,

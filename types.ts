@@ -27,6 +27,7 @@ export interface Project {
     selectedStyle: string;
     customStyle: string;
     numVariants: number;
+    forceCharacterInScenes?: boolean;
     characterReferenceImageId: string | null;
     styleReferenceImageId: string | null;
     storyboard: Scene[];
@@ -59,6 +60,7 @@ export function isProject(obj: any): obj is Project {
     typeof obj.selectedStyle === 'string' &&
     typeof obj.customStyle === 'string' &&
     typeof obj.numVariants === 'number' &&
+    (typeof obj.forceCharacterInScenes === 'boolean' || typeof obj.forceCharacterInScenes === 'undefined') &&
     (typeof obj.characterReferenceImageId === 'string' || obj.characterReferenceImageId === null) &&
     (typeof obj.styleReferenceImageId === 'string' || obj.styleReferenceImageId === null) &&
     Array.isArray(obj.storyboard) &&

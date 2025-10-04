@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Scene } from '../types';
 import MagicWandIcon from './MagicWandIcon';
@@ -31,9 +32,10 @@ interface SceneBlockProps {
     onGenerateImage: (index: number) => void;
     onRegenerateImage: (index: number) => void;
     onImageClick: (index: number) => void;
+    isBatchProcessing: boolean;
 }
 
-const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, isGeneratingImage, imageGenerationErrorMessage, onFieldChange, onEnhance, onGenerateImage, onRegenerateImage, onImageClick }) => {
+const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, isGeneratingImage, imageGenerationErrorMessage, onFieldChange, onEnhance, onGenerateImage, onRegenerateImage, onImageClick, isBatchProcessing }) => {
     
     const [activeVariantIndex, setActiveVariantIndex] = useState(0);
     const latestImageSet = scene.imageHistory?.[scene.imageHistory.length - 1] || [];
@@ -49,7 +51,7 @@ const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, i
 
     const isEnhancingDescription = enhancingState?.field === 'description';
     const isEnhancingActions = enhancingState?.field === 'actions';
-    const isEnhancingAnything = !!enhancingState;
+    const isEnhancingAnything = !!enhancingState || isBatchProcessing;
 
     return (
     <div className={`bg-gray-800 rounded-lg p-4 border-2 ${sectionClass} flex flex-col md:flex-row gap-4 transition-all`}>
@@ -168,7 +170,7 @@ const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, i
             <div className="w-full flex gap-2 mt-2">
                 <button
                     onClick={() => onGenerateImage(index)}
-                    disabled={isGeneratingImage || !scene.description}
+                    disabled={isGeneratingImage || !scene.description || isBatchProcessing}
                     className="flex-grow bg-cyan-600 text-white font-bold py-2 px-4 rounded-md hover:bg-cyan-500 transition-colors duration-200 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                     {isGeneratingImage ? 'Wait' : (latestImageSet.length > 0) ? 'Generate New' : 'Generate Image'}
@@ -176,7 +178,7 @@ const SceneBlock: React.FC<SceneBlockProps> = ({ scene, index, enhancingState, i
                 {latestImageSet.length > 0 && (
                      <button
                         onClick={() => onRegenerateImage(index)}
-                        disabled={isGeneratingImage}
+                        disabled={isGeneratingImage || isBatchProcessing}
                         className="p-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 transition-colors duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed"
                         aria-label="Regenerate image with minor variations"
                     >

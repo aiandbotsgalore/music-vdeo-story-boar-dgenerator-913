@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Scene, Project, ProjectSnapshot } from './types';
 import { isProject } from './types';
@@ -77,6 +78,7 @@ const createNewProject = (): Project => ({
     selectedStyle: 'Cinematic Realism',
     customStyle: '',
     numVariants: 1,
+    forceCharacterInScenes: true,
     characterReferenceImageId: null,
     styleReferenceImageId: null,
     storyboard: [],
@@ -236,7 +238,21 @@ const CreativeBrief: React.FC<{
                                 ) : <span className="text-gray-500 text-sm">No image selected for style reference.</span>}
                             </div>
                         </div>
-                        <InputGroup id="character" label="5. Key Characters & Props" labelColorClass="text-pink-300" value={currentProject.characterPrompt} placeholder="e.g., Ivan, a musician with a red leather jacket and a vintage acoustic guitar." isEnhancing={enhancingState?.type === 'character'} onChange={(e) => updateCurrentProject({ characterPrompt: e.target.value })} onEnhance={() => handleEnhance('character', 'characterPrompt')} />
+                        <div className="flex flex-col gap-3">
+                            <InputGroup id="character" label="5. Key Characters & Props" labelColorClass="text-pink-300" value={currentProject.characterPrompt} placeholder="e.g., Ivan, a musician with a red leather jacket and a vintage acoustic guitar." isEnhancing={enhancingState?.type === 'character'} onChange={(e) => updateCurrentProject({ characterPrompt: e.target.value })} onEnhance={() => handleEnhance('character', 'characterPrompt')} />
+                             <div className="flex items-center gap-3 text-sm text-gray-400 -mt-2 pl-1">
+                                <input
+                                    type="checkbox"
+                                    id="force-character"
+                                    checked={currentProject.forceCharacterInScenes ?? true}
+                                    onChange={(e) => updateCurrentProject({ forceCharacterInScenes: e.target.checked })}
+                                    className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-cyan-500 focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-cyan-500"
+                                />
+                                <label htmlFor="force-character" className="cursor-pointer">
+                                    Force character in every scene prompt
+                                </label>
+                            </div>
+                        </div>
                         <div className="flex flex-col gap-2">
                             <label htmlFor="variants" className="text-lg font-semibold text-green-300">6. Image Variants per Scene</label>
                             <select id="variants" value={currentProject.numVariants} onChange={(e) => updateCurrentProject({ numVariants: Number(e.target.value) })} className="w-full bg-gray-800 border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 text-gray-200">
@@ -300,6 +316,7 @@ interface MainContentProps {
     handleGenerateScenes: () => void;
     isGeneratingScenes: boolean;
     isBatchGenerating: boolean;
+    isBatchEnhancing: boolean;
     generatingImages: Set<number>;
     imageGenerationErrors: Map<number, string>;
     editingImageIndex: number | null;
@@ -309,6 +326,7 @@ interface MainContentProps {
     handleEnhanceScene: (index: number, field: 'description' | 'actions') => void;
     generateImageForScene: (index: number) => Promise<void>;
     handleBatchGenerateImages: () => Promise<void>;
+    handleBatchEnhanceScenes: () => Promise<void>;
     handleEditImage: (sceneIndex: number, maskData: string, editPrompt: string) => Promise<void>;
     handleDownloadImage: (imageId: string) => Promise<void>;
     handleDownloadAllImages: () => Promise<void>;
@@ -334,6 +352,7 @@ const MainContent: React.FC<MainContentProps> = ({
     handleGenerateScenes,
     isGeneratingScenes,
     isBatchGenerating,
+    isBatchEnhancing,
     generatingImages,
     imageGenerationErrors,
     editingImageIndex,
@@ -343,6 +362,7 @@ const MainContent: React.FC<MainContentProps> = ({
     handleEnhanceScene,
     generateImageForScene,
     handleBatchGenerateImages,
+    handleBatchEnhanceScenes,
     handleEditImage,
     handleDownloadImage,
     handleDownloadAllImages,
@@ -370,6 +390,7 @@ const MainContent: React.FC<MainContentProps> = ({
     }, [currentProject.storyboard]);
 
     const hasImages = useMemo(() => currentProject.storyboard.some(s => s.imageHistory && s.imageHistory.length > 0), [currentProject.storyboard]);
+    const isAnyBatchJobRunning = isBatchGenerating || isBatchEnhancing;
 
     return (
         <>
@@ -417,7 +438,7 @@ const MainContent: React.FC<MainContentProps> = ({
                             <div className="flex flex-wrap justify-center items-center gap-4">
                                 <button
                                     onClick={handleBatchGenerateImages}
-                                    disabled={isBatchGenerating || scenesWithoutImages === 0 || !!enhancingState}
+                                    disabled={isAnyBatchJobRunning || scenesWithoutImages === 0 || !!enhancingState}
                                     className="w-full md:w-auto bg-gradient-to-r from-teal-500 to-sky-600 text-white font-bold py-3 px-8 rounded-lg hover:from-teal-400 hover:to-sky-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
                                 >
                                     {isBatchGenerating ? (
@@ -426,10 +447,21 @@ const MainContent: React.FC<MainContentProps> = ({
                                         <span>{`Generate All Images (${scenesWithoutImages} remaining)`}</span>
                                     )}
                                 </button>
+                                 <button
+                                    onClick={handleBatchEnhanceScenes}
+                                    disabled={isAnyBatchJobRunning || !!enhancingState || currentProject.storyboard.length === 0}
+                                    className="w-full md:w-auto bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-3 px-8 rounded-lg hover:from-purple-500 hover:to-pink-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
+                                >
+                                    {isBatchEnhancing ? (
+                                        <><Spinner /><span>Enhancing...</span></>
+                                    ) : (
+                                        <><MagicWandIcon className="w-5 h-5"/><span>Enhance All Descriptions</span></>
+                                    )}
+                                </button>
                                 {hasImages && (
                                     <button
                                         onClick={() => setIsPreviewModeActive(true)}
-                                        disabled={!currentProject.audioId}
+                                        disabled={!currentProject.audioId || isAnyBatchJobRunning}
                                         className="w-full md:w-auto bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-bold py-3 px-8 rounded-lg hover:from-cyan-400 hover:to-purple-500 transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                                         title={!currentProject.audioId ? "Upload audio to enable preview" : "Open cinematic preview"}
                                     >
@@ -439,13 +471,14 @@ const MainContent: React.FC<MainContentProps> = ({
                                 )}
                                 <button
                                     onClick={handleExportStoryboard}
-                                    className="w-full md:w-auto bg-gray-700 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-600 transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
+                                    disabled={isAnyBatchJobRunning}
+                                    className="w-full md:w-auto bg-gray-700 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
                                 >
                                     Export JSON (Text Only)
                                 </button>
                                 <button
                                     onClick={handleDownloadAllImages}
-                                    disabled={isDownloadingAll || imagesToDownloadCount === 0}
+                                    disabled={isDownloadingAll || imagesToDownloadCount === 0 || isAnyBatchJobRunning}
                                     className="w-full md:w-auto bg-gray-700 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg flex items-center justify-center gap-3"
                                 >
                                     {isDownloadingAll ? (
@@ -470,6 +503,7 @@ const MainContent: React.FC<MainContentProps> = ({
                                 onGenerateImage={generateImageForScene}
                                 onRegenerateImage={generateImageForScene}
                                 onImageClick={setActiveModalIndex}
+                                isBatchProcessing={isAnyBatchJobRunning}
                             />
                         ))}
                     </section>
@@ -512,6 +546,7 @@ const App: React.FC = () => {
     const [isGeneratingIdea, setIsGeneratingIdea] = useState<boolean>(false);
     const [enhancingState, setEnhancingState] = useState<{ type: 'concept' | 'style' | 'character'; index?: number; field?: never } | { type: 'scene'; index: number; field: 'description' | 'actions' } | null>(null);
     const [isBatchGenerating, setIsBatchGenerating] = useState<boolean>(false);
+    const [isBatchEnhancing, setIsBatchEnhancing] = useState<boolean>(false);
     const [generatingImages, setGeneratingImages] = useState<Set<number>>(new Set());
     const [imageGenerationErrors, setImageGenerationErrors] = useState<Map<number, string>>(new Map());
     const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
@@ -838,6 +873,56 @@ const App: React.FC = () => {
         setEnhancingState(null);
     }, [currentProjectIndex, updateCurrentProject]);
 
+    const handleBatchEnhanceScenes = useCallback(async () => {
+        if (currentProjectIndex === null) return;
+        const project = projectsRef.current[currentProjectIndex];
+        if (!project || project.storyboard.length === 0) return;
+
+        setIsBatchEnhancing(true);
+
+        const finalStylePrompt = project.selectedStyle === 'Custom' ? project.customStyle : STYLE_PRESETS[project.selectedStyle];
+        const newStoryboard = [...project.storyboard];
+
+        try {
+            for (let i = 0; i < newStoryboard.length; i++) {
+                const scene = newStoryboard[i];
+                
+                const prevSceneDesc = i > 0 ? newStoryboard[i - 1].description : "N/A. This is the first scene.";
+                const nextSceneDesc = i < newStoryboard.length - 1 ? newStoryboard[i + 1].description : "N/A. This is the last scene.";
+                
+                const context = `You are enhancing the description for a single scene within a larger music video storyboard. Your goal is to make the description more vivid and compelling for AI image generation, while ensuring it maintains narrative continuity with the scenes before and after it.
+
+**Overall Concept:** ${project.concept}
+**Narrative Arc:** ${project.narrativeArc}
+**Visual Style:** ${finalStylePrompt}
+**Characters:** ${project.characterPrompt}
+
+**Continuity Context:**
+- **Previous Scene Description:** "${prevSceneDesc}"
+- **Next Scene Description:** "${nextSceneDesc}"
+
+**Current Scene Details:**
+- **Lyric:** "${scene.lyric}"
+- **Action:** "${scene.actions}"
+
+Based on all of this context, enhance the following description for the current scene. Respond only with the new description.`;
+                
+                const enhancedDescription = await enhanceText(scene.description, context);
+                
+                newStoryboard[i] = { ...scene, description: enhancedDescription };
+                
+                // Provide incremental UI updates
+                updateCurrentProject({ storyboard: [...newStoryboard] });
+            }
+        } catch (error) {
+            console.error("Batch scene enhancement failed:", error);
+            alert("An error occurred while enhancing scene descriptions. Please check the console for details.");
+        } finally {
+            setIsBatchEnhancing(false);
+        }
+    }, [currentProjectIndex, updateCurrentProject]);
+
+
     const generateImageForScene = useCallback(async (index: number) => {
         if (currentProjectIndex === null) return;
         
@@ -879,7 +964,7 @@ const App: React.FC = () => {
             const charRef = await fetchRefImage(project.characterReferenceImageId);
             const styleRef = await fetchRefImage(project.styleReferenceImageId);
         
-            const imageUrls = await generateImage(sceneToGenerate, index, project.storyboard, finalStylePrompt, project.characterPrompt, project.numVariants, charRef, styleRef);
+            const imageUrls = await generateImage(sceneToGenerate, index, project.storyboard, finalStylePrompt, project.characterPrompt, project.numVariants, charRef, styleRef, project.forceCharacterInScenes ?? true);
             
             let imageIds: string[];
             try {
@@ -1260,6 +1345,7 @@ const App: React.FC = () => {
                                 handleGenerateScenes={handleGenerateScenes}
                                 isGeneratingScenes={isGeneratingScenes}
                                 isBatchGenerating={isBatchGenerating}
+                                isBatchEnhancing={isBatchEnhancing}
                                 generatingImages={generatingImages}
                                 imageGenerationErrors={imageGenerationErrors}
                                 editingImageIndex={editingImageIndex}
@@ -1269,6 +1355,7 @@ const App: React.FC = () => {
                                 handleEnhanceScene={handleEnhanceScene}
                                 generateImageForScene={generateImageForScene}
                                 handleBatchGenerateImages={handleBatchGenerateImages}
+                                handleBatchEnhanceScenes={handleBatchEnhanceScenes}
                                 handleEditImage={handleEditImage}
                                 handleDownloadImage={handleDownloadImage}
                                 handleDownloadAllImages={handleDownloadAllImages}
