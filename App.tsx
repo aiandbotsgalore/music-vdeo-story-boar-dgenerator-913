@@ -823,7 +823,8 @@ const App: React.FC = () => {
             currentProject.narrativeArc,
             currentProject.lyrics,
             currentProject.characterPrompt,
-            finalStylePrompt
+            finalStylePrompt,
+            currentProject.storyboard // Pass existing storyboard as context for re-generation
         );
 
         updateCurrentProject({ storyboard });

@@ -1,9 +1,9 @@
-// FIX: Corrected React import to be consistent with the rest of the application. The namespace import was likely causing issues with how TypeScript resolved component props.
-import React from 'react';
+// FIX: Refactored to use named imports from React to resolve a type issue with class components.
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import ErrorScreen from './ErrorScreen';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 interface State {
@@ -11,18 +11,22 @@ interface State {
   error: Error | null;
 }
 
-class ApiErrorBoundary extends React.Component<Props, State> {
-  state: State = {
-    hasError: false,
-    error: null,
-  };
+class ApiErrorBoundary extends Component<Props, State> {
+  // FIX: Added a constructor to explicitly initialize state and props, resolving a TypeScript error where `this.props` was not recognized on the class instance.
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // You can also log the error to an error reporting service
     console.error("Uncaught error:", error, errorInfo);
   }

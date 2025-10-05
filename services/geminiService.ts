@@ -199,10 +199,24 @@ export const generateStoryboardFromScenes = async (
   narrativeArc: string,
   lyrics: string,
   characterPrompt: string,
-  stylePrompt: string
+  stylePrompt: string,
+  existingStoryboard?: Scene[]
 ): Promise<{ storyboard: Scene[] }> => {
+  const existingStoryboardContext = (existingStoryboard && existingStoryboard.length > 0)
+    ? `
+    **REFERENCE STORYBOARD (IMPORTANT CONTEXT):**
+    You are re-generating a storyboard. The previous version is provided below. Use it as a strong reference for scene timing, pacing, and overall narrative structure. Your main task is to refine and improve the visual descriptions, actions, and camera angles while maintaining the established flow. Do not drastically change the scene timestamps or which lyrics correspond to which scene unless it's a clear improvement for musicality and pacing.
+
+    Previous Version:
+    ---
+    ${existingStoryboard.map(s => `${s.timestamp} ${s.description}`).join('\n')}
+    ---
+    `
+    : '';
+
   const prompt = `
     You are a creative director for music videos. Your task is to take a user's approved concept and lyrics and generate a detailed, scene-by-scene storyboard.
+    ${existingStoryboardContext}
 
     **Approved Creative Concept:**
     - **Logline:** ${logline}
@@ -217,6 +231,7 @@ export const generateStoryboardFromScenes = async (
     **Instructions for the Storyboard:**
     - **Follow the Arc:** The scenes you create must strictly follow the provided **Logline** and **Narrative Arc**.
     - **Pacing and Transitions (Critical):** Parse the timestamped lyrics ([mm:ss.sss] format) to determine scene breaks. Prioritize transitions at musically meaningful points like beat drops, vocal phrase ends, instrumentation changes, or energy surges. To ensure visual engagement, enforce a maximum of 5 seconds per scene—split any longer musical segments into sub-scenes at inferred rhythmic points (e.g., mid-phrase builds or subtle shifts), while always honoring the song's flow. Consolidate very short phrases only if they fit under 5 seconds and form a cohesive unit. The first scene starts at the lyrics' beginning; the final timestamp matches the lyrics' end. Ensure full coverage with no gaps exceeding 5 seconds.
+    - **Visual Cohesion & Smooth Transitions:** For each scene, actively consider the visual and emotional content of the preceding and succeeding scenes. Descriptions should be written to create a seamless flow. For example, suggest match cuts (e.g., an object in one scene transforms into a similar object in the next), continuous camera motion, or gradual shifts in lighting and color to bridge scenes. Avoid jarring visual jumps unless they are intentional and serve the narrative arc.
     - For each scene, provide:
       1. A concise but vivid **description** of the visuals that STRICTLY adheres to the provided **Visual Style** and the **Narrative Arc**.
       2. A brief, active description of key **actions** or events (e.g., 'She runs through the rain', 'The spaceship lands').
